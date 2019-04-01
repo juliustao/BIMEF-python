@@ -2,12 +2,16 @@ import numpy as np
 import cv2
 from scipy import signal
 from scipy.sparse import spdiags
+from scipy.sparse.linalg import cg
 
+"""
 img_path = '/Users/carnitas/Downloads/dark_images/0cd9b7d9-36b5-4b73-a29d-5ed319eb007d.jpg'
 bgr_img = cv2.imread(img_path, 1)
 b, g, r = cv2.split(bgr_img)       # get b,g,r
 rgb_img = cv2.merge([r, g, b])     # switch it to rgb
 import pdb;pdb.set_trace()
+"""
+
 
 def BIMEF(I, mu=0.5, k=0, a=-0.3293, b=1.1258):
     """
@@ -61,7 +65,7 @@ def computeTextureWeights(fin, sigma, sharpness):
 def solveLinearEquation(IN, wx, wy, lamb):
     r, c, ch = IN.shape
     k = r * c
-    dx = -lamb * np.reshape(wx, (1, wx.size))  # row vector
+    dx = -lamb * np.reshape(wx, (1, wx.size))  # row vector; in MatLab this is a column vector
     dy = -lamb * np.reshape(wy, (1, wy.size))  # row vector
     tempx = np.concatenate((wx[:, -1], wx[:, 0:-2]), axis=1)
     tempy = np.concatenate((wy[-1, :], wy[0:-2, :]), axis=0)
@@ -78,12 +82,32 @@ def solveLinearEquation(IN, wx, wy, lamb):
 
     Ax = spdiags(np.concatenate((dxd1, dxd2), axis=0), [-k+r, -r], k, k)
     Ay = spdiags(np.concatenate((dyd1, dyd2), axis=0), [-r+1, -1], k, k)
+    # diagonals stored row-wise; in MatLab the diagonals are stored column-wise
 
     D = 1 - (dx + dy + dxa + dya)
 
     A = (Ax + Ay) + np.matrix(Ax + Ay).H + spdiags(D, 0, k, k)
 
+    fast = False
+    if fast:  # This method uses approximations to solve A*x=tin(:) more quickly
+        L = np.linalg.cholesky(A)  # what happens if we instead use scipy's cholesky function?
+        OUT = IN
+        for ii in range(ch):
+            tin = IN[:, :, ii]
+            tout, _ = cg(A, np.reshape(tin, (tin.size, 1)), tol=0.1,
+                         maxiter=50, M=np.dot(np.linalg.inv(np.matrix(L).H), np.linalg.inv(L)))
+            # The conjugate gradient function in Python uses the preconditioner M, which approximates A^(-1).
+            # However, MatLab uses the preconditioner M, where M approximates A. In MatLab, M = A = L * L'.
+            # For Python, we calculate M = A^(-1) = L'^(-1) * L^(-1).
+            OUT[:, :, ii] = np.reshape(tout, (r, c))
+    else:
+        OUT = IN
+        for ii in range(ch):
+            tin = IN[:, :, ii]
+            tout = np.linalg.lstsq(A, np.reshape(tin, (tin.size, 1)))
+            OUT[:, :, ii] = np.reshape(tout, (r, c))
 
+    return OUT
 
 
 def im2double(im):
