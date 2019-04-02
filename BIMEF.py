@@ -3,17 +3,11 @@ import cv2
 from scipy import signal
 from scipy.sparse import spdiags
 from scipy.sparse.linalg import cg
-
-"""
-img_path = '/Users/carnitas/Downloads/dark_images/0cd9b7d9-36b5-4b73-a29d-5ed319eb007d.jpg'
-bgr_img = cv2.imread(img_path, 1)
-b, g, r = cv2.split(bgr_img)       # get b,g,r
-rgb_img = cv2.merge([r, g, b])     # switch it to rgb
-import pdb;pdb.set_trace()
-"""
+from scipy.optimize import fminbound
+from scipy.stats import entropy
 
 
-def BIMEF(I, mu=0.5, k=0, a=-0.3293, b=1.1258):
+def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
     """
     :param I:   image data (of an RGB image) stored as a 3D numpy array (height x width x color)
     :param mu:  enhancement ratio
@@ -22,18 +16,67 @@ def BIMEF(I, mu=0.5, k=0, a=-0.3293, b=1.1258):
     :param b:   camera response model parameter
     :return:    fused: enhanced result
     """
+
+    def maxEntropyEnhance(I, isBad=None):
+        Y = rgb2gm(np.real(np.maximum(cv2.resize(I, dsize=(50, 50), interpolation=cv2.INTER_CUBIC), 0)))
+
+        if not (isBad is None):
+            isBad = cv2.resize(isBad, dsize=(50, 50), interpolation=cv2.INTER_CUBIC).T
+            Y = Y[isBad]
+            Y = np.reshape(Y, (Y.size, 1))
+
+        if Y.size == 0:
+            J = I
+            return J
+
+        _, opt_k, _, _ = fminbound(lambda k: -entropy(cv2.calcHist([applyK(Y, k)], [0], None, [256], [0, 1])),
+                                   x1=1, x2=7)
+        J = applyK(I, opt_k, a, b) - 0.01
+
+        return J
+
     I = im2double(I)
 
-    lambd = 0.5
+    lamb = 0.5
     sigma = 5
 
     # t: scene illumination map
     t_b = np.amax(I, axis=2)
-    t_our = cv2.resize(t_b, dsize=None, fx=0.5, fy=0.5, interpolation=cv2.INTER_CUBIC)
+    t_our = cv2.resize(tsmooth(cv2.resize(t_b, fx=0.5, fy=0.5, interpolation=cv2.INTER_CUBIC), lamb, sigma),
+                       dsize=np.shape(t_b), interpolation=cv2.INTER_CUBIC)
+    # We try to replicate MatLab's imresize function, which uses intercubic interpolation and anti-aliasing by default
+
+    # k: exposure ratio
+    if k is None or k.size == 0:
+        isBad = t_our < 0.5  # compare t_our to 0.5 element-wise and creates a new array of truth values
+        J = maxEntropyEnhance(I, isBad)
+    else:
+        J = applyK(I, k, a, b)
+        J = np.amin(J, axis=0)
+
+    # W: Weight Matrix
+    t = np.tile(t_our, [1, 1, np.shape(I)[2]])
+    W = t**mu
+    I2 = I**W
+    J2 = I**(1-W)
+    fused = I2+J2
+
+    return fused
 
 
+def rgb2gm(I):
+    if np.shape(I)[2] == 3:
+        I = im2double(np.maximum(0, I))
+        I = (I[:, :, 0] * I[:, :, 1] * I[:, :, 2])**(1/3)
+    return I
 
-    return #fused
+
+def applyK(I, k, a=-0.3293, b=1.1258):
+    f = lambda x: np.exp((1-x**a)*b)
+    beta = f(k)
+    gamma = k**a
+    J = I**gamma*beta
+    return J
 
 
 def tsmooth(I, lamb=0.01, sigma=3.0, sharpness=0.001):
