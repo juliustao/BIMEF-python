@@ -1,9 +1,11 @@
 import numpy as np
 import cv2
+import time
+import pyamg
 from imresize import imresize
+from sksparse.cholmod import cholesky
 from scipy import signal
 from scipy.sparse import spdiags
-from scipy.sparse.linalg import cg
 from scipy.optimize import fminbound
 from scipy.stats import entropy
 
@@ -19,12 +21,13 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
     """
 
     def maxEntropyEnhance(I, isBad=None):
-        Y = rgb2gm(np.real(np.maximum(cv2.resize(I, dsize=(50, 50), fx=0, fy=0, interpolation=cv2.INTER_CUBIC), 0)))
+        Y = rgb2gm(np.real(np.maximum(imresize(I, output_shape=(50, 50)), 0)))
+        import pdb;pdb.set_trace()
 
         if not (isBad is None):
-            isBad = cv2.resize(isBad, dsize=(50, 50), fx=0, fy=0, interpolation=cv2.INTER_CUBIC).T
+            isBad = imresize(isBad, output_shape=(50, 50)).T  # why is there a transpose here?
             Y = Y[isBad]
-            Y = np.reshape(Y, (Y.size, 1))
+            Y = np.reshape(Y, (Y.size, 1), order='F')  # why is there a reshape here?
 
         if Y.size == 0:
             J = I
@@ -44,16 +47,17 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
 
     # t: scene illumination map
     t_b = np.amax(I, axis=2)
-    t_our = imresize(tsmooth(imresize(t_b, scalar_scale=0.5), lamb, sigma), t_b.shape)
+    t_our = imresize(tsmooth(imresize(t_b, scalar_scale=0.5), lamb, sigma), output_shape=t_b.shape)
     # We try to replicate MatLab's imresize function, which uses intercubic interpolation and anti-aliasing by default
 
     # k: exposure ratio
-    if k is None or k.size == 0:
+    if k is None or k.size == 0:  # this path is taken
         isBad = t_our < 0.5  # compare t_our to 0.5 element-wise and creates a new array of truth values
         J = maxEntropyEnhance(I, isBad)
     else:
         J = applyK(I, k, a, b)
         J = np.amin(J, axis=0)
+        # remember to check this!
 
     # W: Weight Matrix
     t = np.tile(t_our, [1, 1, np.shape(I)[2]])
@@ -68,7 +72,8 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
 def rgb2gm(I):
     if np.shape(I)[2] == 3:
         I = im2double(np.maximum(0, I))
-        I = (I[:, :, 0] * I[:, :, 1] * I[:, :, 2])**(1/3)
+        I = (I[:, :, 0] * I[:, :, 1] * I[:, :, 2]) ** (1.0/3.0)
+    import pdb;pdb.set_trace()
     return I
 
 
@@ -85,6 +90,7 @@ def tsmooth(I, lamb=0.01, sigma=3.0, sharpness=0.001):
     x = I
     wx, wy = computeTextureWeights(x, sigma, sharpness)
     S = solveLinearEquation(I, wx, wy, lamb)
+    S = np.squeeze(S)
     return S
 
 
@@ -136,23 +142,37 @@ def solveLinearEquation(IN, wx, wy, lamb):
     A = Axy + Axy.T + spdiags(D.T, 0, k, k)
 
     fast = True
-    if fast:  # This method uses approximations to solve A*x=tin(:) more quickly
-        L = np.linalg.cholesky(A)  # what happens if we instead use scipy's cholesky function?
+    if fast:
         OUT = IN
         for ii in range(ch):
             tin = IN[:, :, ii]
-            tout, _ = cg(A, np.reshape(tin, (tin.size, 1)), tol=0.1,
-                         maxiter=50, M=np.dot(np.linalg.inv(np.matrix(L).H), np.linalg.inv(L)))
-            # The conjugate gradient function in Python uses the preconditioner M, which approximates A^(-1).
-            # However, MatLab uses the preconditioner M, where M approximates A. In MatLab, M = A = L * L'.
-            # For Python, we calculate M = A^(-1) = L'^(-1) * L^(-1).
-            OUT[:, :, ii] = np.reshape(tout, (r, c))
+            tin = np.reshape(tin, (tin.size, 1), order='F')
+            # start_amg = time.time()
+            # ml = pyamg.ruge_stuben_solver(A)
+            # tout = ml.solve(tin)
+            # end_amg = time.time()
+            # time_amg = end_amg-start_amg
+            # print(time_amg)
+
+            # run time of 1.04663395882 seconds
+
+            start_cholmod = time.time()
+            factor = cholesky(A)
+            tout = factor(tin)
+            end_cholmod = time.time()
+            time_cholmod = end_cholmod-start_cholmod
+            print(time_cholmod)
+
+            # run time of 0.731502056122 seconds
+            OUT[:, :, ii] = np.reshape(tout, (r, c), order='F')  # matches the A\tin(:), not the ichol from matlab
     else:
+        # Solving A*x = tin is extremely slow here
         OUT = IN
         for ii in range(ch):
             tin = IN[:, :, ii]
-            tout = np.linalg.lstsq(A, np.reshape(tin, (tin.size, 1)))
-            OUT[:, :, ii] = np.reshape(tout, (r, c))
+            tin = np.reshape(tin, (tin.size, 1), order='F')
+            tout = np.linalg.lstsq(A.toarray(), tin)
+            OUT[:, :, ii] = np.reshape(tout, (r, c), order='F')
 
     return OUT
 
