@@ -1,15 +1,11 @@
 import numpy as np
 import cv2
 import time
-# import pyamg
 from imresize import imresize
 from sksparse.cholmod import cholesky
 from scipy import signal
 from scipy.sparse import spdiags
 from scipy.optimize import fminbound
-from scipy.stats import entropy
-# from scipy.io import loadmat, savemat
-# import pdb
 
 
 def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
@@ -27,7 +23,6 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
         # imresize(I, output_shape=(50, 50)) matches MATLAB with tolerance = 1e-14
         # np.real(np.maximum(..., 0)) usually does nothing
         # Y matches MATLAB with tolerance = 1e-16
-        # pdb.set_trace()
 
         if not (isBad is None):
             isBad = (255*isBad).astype(np.uint8)  # converts bool array to uint8 array * 255
@@ -35,7 +30,6 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
             isBad = isBad > 128  # converts uint8 array to bool array
             # isBad matches MATLAB exactly
             Y = Y.T[isBad.T]
-            # pdb.set_trace()
             # since python iterates row-first, we must take transpose of Y and isBad to iterate column-first like MATLAB
             # Y matches MATLAB with tolerance = 1e-15
             # we leave Y in the shape of a 1D array instead of converting to a column vector like in MATLAB
@@ -56,35 +50,11 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
             negative_entropy = np.sum(normalized_hist * np.log2(normalized_hist))
             return negative_entropy
 
-        def find_negative_entropy2(Y, k):
-            applied_k = applyK(Y, k)
-            applied_k[applied_k > 1] = 1
-            applied_k[applied_k < 0] = 0
-            scaled_applied_k = 255 * applied_k + 0.5  # we add 0.5 to round like MATLAB instead of truncating
-            int_applied_k = scaled_applied_k.astype(np.uint8)
-            hist = np.bincount(int_applied_k, minlength=256)
-            return -entropy(hist)
-
-        start1 = time.time()
         opt_k = fminbound(func=lambda k: find_negative_entropy(Y, k), x1=1.0, x2=7.0, full_output=False)
-        end1 = time.time()
-        print(end1-start1)
-
-        start2 = time.time()
-        opt_k2 = fminbound(func=lambda k: find_negative_entropy2(Y, k), x1=1.0, x2=7.0, full_output=False)
-        end2 = time.time()
-        print(end2-start2)
-
-        # nearly identical run times of ~0.004
-
-        J = applyK(I, opt_k) - 0.01
-        # J has tolerance of 1e-5
-        # J[J > 1] = 1
-        # pdb.set_trace()
+        J = applyK(I, opt_k) - 0.01  # J has tolerance of 1e-5
 
         return J
 
-    I0 = I
     I = im2double(I)
 
     lamb = 0.5
@@ -92,19 +62,16 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
 
     # t: scene illumination map
     t_b = np.amax(I, axis=2)
-    # pdb.set_trace()
     t_our = imresize(tsmooth(imresize(t_b, scalar_scale=0.5), lamb, sigma), output_shape=t_b.shape)
     # We try to replicate MatLab's imresize function, which uses intercubic interpolation and anti-aliasing by default
     # imresize(t_b, scalar_scale=0.5) matches MATLAB exactly
     # tsmooth(...) matches MATLAB with tolerance of 1e-14
     # imresize(tsmooth(...), output_shape = t_b.shape) matches MATLAB with tolerance of 1e-14)
-    # pdb.set_trace()
 
     # k: exposure ratio
     if k is None or k.size == 0:  # this path is taken
         isBad = t_our < 0.5  # compare t_our to 0.5 element-wise and creates an array of truth values
         # isBad matches MATLAB exactly
-        # pdb.set_trace()
         J = maxEntropyEnhance(I, isBad)
     else:
         J = applyK(I, k)
@@ -115,15 +82,12 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
     W = t ** mu  # tolerance 1e-14
     I2 = I * W  # tolerance 1e-14
     J2 = J * (1.0-W)  # tolerance 1e-7
-    fused = I2 + J2
-    # pdb.set_trace()
-    # tolerance of 1e-6
+    fused = I2 + J2  # tolerance of 1e-6
 
     fused[fused > 1] = 1  # fix overflow
     fused[fused < 0] = 0  # fix underflow
     fused = (255*fused + 0.5).astype(np.uint8)  # convert double img to uint8
     # tolerance of +/- 1 on integer pixel values
-    # pdb.set_trace()
 
     return fused
 
@@ -210,21 +174,18 @@ def solveLinearEquation(IN, wx, wy, lamb):
             # tout = ml.solve(tin)
             # end_amg = time.time()
             # time_amg = end_amg-start_amg
-            # print(time_amg)
-
-            # run time of 1.04663395882 seconds
+            # print(time_amg)  # run time of 1.04663395882 seconds
 
             start_cholmod = time.time()
             factor = cholesky(A)
             tout = factor(tin)
             end_cholmod = time.time()
             time_cholmod = end_cholmod-start_cholmod
-            print(time_cholmod)
+            print(time_cholmod)  # run time of 0.731502056122 seconds
 
-            # run time of 0.731502056122 seconds
             OUT[:, :, ii] = np.reshape(tout, (r, c), order='F')  # matches the A\tin(:), not the ichol from matlab
     else:
-        # Solving A*x = tin is extremely slow here
+        # Solving A*x = tin is extremely slow using np.linalg.lstsq
         OUT = IN
         for ii in range(ch):
             tin = IN[:, :, ii]

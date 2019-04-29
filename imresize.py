@@ -5,11 +5,13 @@ from math import ceil, floor
 This imresize function replicates the behavior of MATLAB's imresize function.
 """
 
+
 def deriveSizeFromScale(img_shape, scale):
     output_shape = []
     for k in range(2):
         output_shape.append(int(ceil(scale[k] * img_shape[k])))
     return output_shape
+
 
 def deriveScaleFromSize(img_shape_in, img_shape_out):
     scale = []
@@ -17,13 +19,16 @@ def deriveScaleFromSize(img_shape_in, img_shape_out):
         scale.append(1.0 * img_shape_out[k] / img_shape_in[k])
     return scale
 
+
 def cubic(x):
     x = np.array(x).astype(np.float64)
     absx = np.absolute(x)
     absx2 = np.multiply(absx, absx)
     absx3 = np.multiply(absx2, absx)
-    f = np.multiply(1.5*absx3 - 2.5*absx2 + 1, absx <= 1) + np.multiply(-0.5*absx3 + 2.5*absx2 - 4*absx + 2, (1 < absx) & (absx <= 2))
+    f = np.multiply(1.5 * absx3 - 2.5 * absx2 + 1, absx <= 1) + np.multiply(-0.5 * absx3 + 2.5 * absx2 - 4 * absx + 2,
+                                                                            (1 < absx) & (absx <= 2))
     return f
+
 
 def contributions(in_length, out_length, scale, kernel, k_width):
     if scale < 1:
@@ -32,13 +37,13 @@ def contributions(in_length, out_length, scale, kernel, k_width):
     else:
         h = kernel
         kernel_width = k_width
-    x = np.arange(1, out_length+1).astype(np.float64)
+    x = np.arange(1, out_length + 1).astype(np.float64)
     u = x / scale + 0.5 * (1 - 1 / scale)
     left = np.floor(u - kernel_width / 2)
     P = int(ceil(kernel_width)) + 2
-    ind = np.expand_dims(left, axis=1) + np.arange(P) - 1 # -1 because indexing from 0
+    ind = np.expand_dims(left, axis=1) + np.arange(P) - 1  # -1 because indexing from 0
     indices = ind.astype(np.int32)
-    weights = h(np.expand_dims(u, axis=1) - indices - 1) # -1 because indexing from 0
+    weights = h(np.expand_dims(u, axis=1) - indices - 1)  # -1 because indexing from 0
     weights = np.divide(weights, np.expand_dims(np.sum(weights, axis=1), axis=1))
     aux = np.concatenate((np.arange(in_length), np.arange(in_length - 1, -1, step=-1))).astype(np.int32)
     indices = aux[np.mod(indices, aux.size)]
@@ -46,6 +51,7 @@ def contributions(in_length, out_length, scale, kernel, k_width):
     weights = weights[:, ind2store]
     indices = indices[:, ind2store]
     return weights, indices
+
 
 def imresizemex(inimg, weights, indices, dim):
     in_shape = inimg.shape
@@ -73,19 +79,21 @@ def imresizemex(inimg, weights, indices, dim):
     else:
         return outimg
 
+
 def imresizevec(inimg, weights, indices, dim):
     wshape = weights.shape
     if dim == 0:
         weights = weights.reshape((wshape[0], wshape[2], 1, 1))
-        outimg =  np.sum(weights*((inimg[indices].squeeze(axis=1)).astype(np.float64)), axis=1)
+        outimg = np.sum(weights * ((inimg[indices].squeeze(axis=1)).astype(np.float64)), axis=1)
     elif dim == 1:
         weights = weights.reshape((1, wshape[0], wshape[2], 1))
-        outimg =  np.sum(weights*((inimg[:, indices].squeeze(axis=2)).astype(np.float64)), axis=2)
+        outimg = np.sum(weights * ((inimg[:, indices].squeeze(axis=2)).astype(np.float64)), axis=2)
     if inimg.dtype == np.uint8:
         outimg = np.clip(outimg, 0, 255)
         return np.around(outimg).astype(np.uint8)
     else:
         return outimg
+
 
 def resizeAlongDim(A, dim, weights, indices, mode="vec"):
     if mode == "org":
@@ -93,6 +101,7 @@ def resizeAlongDim(A, dim, weights, indices, mode="vec"):
     else:
         out = imresizevec(A, weights, indices, dim)
     return out
+
 
 def imresize(I, scalar_scale=None, output_shape=None, mode="vec"):
     kernel = cubic
@@ -128,7 +137,8 @@ def imresize(I, scalar_scale=None, output_shape=None, mode="vec"):
         B = np.squeeze(B, axis=2)
     return B
 
+
 def convertDouble2Byte(I):
     B = np.clip(I, 0.0, 1.0)
-    B = 255*B
+    B = 255 * B
     return np.around(B).astype(np.uint8)
