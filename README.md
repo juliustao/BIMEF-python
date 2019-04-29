@@ -13,4 +13,4 @@ How to install sksparse module (assuming you have numpy and scipy installed):
 2. Install scikit-sparse (run the command 'pip install scikit-sparse' in the terminal).
 
 Alternatively, you can install the slightly slower pyamg module (run the command 'pip install pyamg' in the terminal).
-You can then modify lines 208-222 accordingly to use the pyamg solver.
+To use pyamg, you can modify lines 172-184 by commenting out the sksparse.cholmod code and uncomment the pyamg code.
