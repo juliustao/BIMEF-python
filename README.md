@@ -14,3 +14,13 @@ How to install sksparse module (assuming you have numpy and scipy installed):
 
 Alternatively, you can install the slightly slower pyamg module (run the command 'pip install pyamg' in the terminal).
 To use pyamg, you can modify lines 172-184 by commenting out the sksparse.cholmod code and uncomment the pyamg code.
+
+# Python vs MATLAB discrepancies
+
+1. The Python translation of imresize matches the original MATLAB version with a tolerance more precise than 1e-10, so both versions are virtually identical.
+
+2. Python's cv2.imread and MATLAB's imread read slightly differently. Corresponding uint8 pixel values can differ by up to 5 or in rare cases, even over 5.
+
+3. Python's fminbound and MATLAB's fminbnd find slightly different values of k that minimize entropy, probably because the Python version converges differently.
+
+Fortunately, the enhanced images produced by both algorithms are visually identical.
