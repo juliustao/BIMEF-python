@@ -22,24 +22,60 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
 
     def maxEntropyEnhance(I, isBad=None):
         Y = rgb2gm(np.real(np.maximum(imresize(I, output_shape=(50, 50)), 0)))
-        import pdb;pdb.set_trace()
+        # imresize(I, output_shape=(50, 50)) matches MATLAB with tolerance = 1e-14
+        # np.real(np.maximum(..., 0)) usually does nothing
+        # Y matches MATLAB with tolerance = 1e-16
 
         if not (isBad is None):
-            isBad = imresize(isBad, output_shape=(50, 50)).T  # why is there a transpose here?
-            Y = Y[isBad]
-            Y = np.reshape(Y, (Y.size, 1), order='F')  # why is there a reshape here?
+            isBad = (255*isBad).astype(np.uint8)  # converts bool array to uint8 array * 255
+            isBad = imresize(isBad, output_shape=(50, 50))
+            isBad = isBad > 128  # converts uint8 array to bool array
+            # isBad matches MATLAB exactly
+            Y = Y.T[isBad.T]
+            # since python iterates row-first, we must take transpose of Y and isBad to iterate column-first like MATLAB
+            # Y matches MATLAB with tolerance = 1e-15
+            # we leave Y in the shape of a 1D array instead of converting to a column vector like in MATLAB
 
         if Y.size == 0:
             J = I
             return J
 
-        _, opt_k, _, _ = fminbound(lambda k: -entropy(cv2.calcHist([applyK(Y, k)], [0], None, [256], [0, 1])),
-                                   x1=1, x2=7)
-        J = applyK(I, opt_k, a, b) - 0.01
+        def find_negative_entropy(Y, k):
+            applied_k = applyK(Y, k)
+            applied_k[applied_k > 1] = 1
+            scaled_applied_k = 255*applied_k + 0.5  # we add 0.5 to round like MATLAB instead of truncating
+            int_applied_k = scaled_applied_k.astype(np.uint8)
+            hist = np.bincount(int_applied_k, minlength=256)
+            nonzero_hist = hist[hist != 0]
+            normalized_hist = 1.0 * nonzero_hist / applied_k.size
+            negative_entropy = np.sum(normalized_hist * np.log2(normalized_hist))
+            return negative_entropy
+
+        def find_negative_entropy2(Y, k):
+            applied_k = applyK(Y, k)
+            applied_k[applied_k > 1] = 1
+            scaled_applied_k = 255 * applied_k + 0.5  # we add 0.5 to round like MATLAB instead of truncating
+            int_applied_k = scaled_applied_k.astype(np.uint8)
+            hist = np.bincount(int_applied_k, minlength=256)
+            return -entropy(hist)
+
+        start1 = time.time()
+        opt_k = fminbound(func=lambda k: find_negative_entropy(Y, k), x1=1.0, x2=7.0, full_output=False)
+        end1 = time.time()
+        print(end1-start1)
+
+        start2 = time.time()
+        opt_k2 = fminbound(func=lambda k: find_negative_entropy2(Y, k), x1=1.0, x2=7.0, full_output=False)
+        end2 = time.time()
+        print(end2-start2)
+
+        # nearly identical run times of ~0.004
+
+        J = applyK(I, opt_k) - 0.01
+        # J has tolerance of 1e-5
 
         return J
 
-    I0 = I
     I = im2double(I)
 
     lamb = 0.5
@@ -49,31 +85,38 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
     t_b = np.amax(I, axis=2)
     t_our = imresize(tsmooth(imresize(t_b, scalar_scale=0.5), lamb, sigma), output_shape=t_b.shape)
     # We try to replicate MatLab's imresize function, which uses intercubic interpolation and anti-aliasing by default
+    # imresize(t_b, scalar_scale=0.5) matches MATLAB exactly
+    # tsmooth(...) matches MATLAB with tolerance of 1e-14
+    # imresize(tsmooth(...), output_shape = t_b.shape) matches MATLAB with tolerance of 1e-14)
 
     # k: exposure ratio
     if k is None or k.size == 0:  # this path is taken
-        isBad = t_our < 0.5  # compare t_our to 0.5 element-wise and creates a new array of truth values
+        isBad = t_our < 0.5  # compare t_our to 0.5 element-wise and creates an array of truth values
+        # isBad matches MATLAB exactly
         J = maxEntropyEnhance(I, isBad)
+        #
     else:
-        J = applyK(I, k, a, b)
-        J = np.amin(J, axis=0)
-        # remember to check this!
+        J = applyK(I, k)
+        J = np.minimum(J, 1)
 
     # W: Weight Matrix
-    t = np.tile(t_our, [1, 1, np.shape(I)[2]])
-    W = t**mu
-    I2 = I**W
-    J2 = I**(1-W)
-    fused = I2+J2
+    t = np.tile(np.expand_dims(t_our, axis=2), (1, 1, I.shape[2]))
+    W = t ** mu
+    I2 = I * W
+    J2 = J * (1-W)
+    fused = I2 + J2
+    # tolerance of 1e-5
+
+    fused[fused > 1] = 1
+    fused = (255*fused+0.5).astype(np.uint8)
 
     return fused
 
 
 def rgb2gm(I):
-    if np.shape(I)[2] == 3:
-        I = im2double(np.maximum(0, I))
-        I = (I[:, :, 0] * I[:, :, 1] * I[:, :, 2]) ** (1.0/3.0)
-    import pdb;pdb.set_trace()
+    if I.shape[2] == 3:
+        I = im2double(np.maximum(0, I))  # usually does nothing
+        I = (I[:, :, 0] * I[:, :, 1] * I[:, :, 2]) ** (1.0/3.0)  # tolerance: 10e-16
     return I
 
 
