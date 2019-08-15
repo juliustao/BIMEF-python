@@ -22,14 +22,18 @@ def enhance_img(filename):
 if __name__ == '__main__':
     in_dir = '/Users/carnitas/dark_images/'
     assert(os.path.isdir(in_dir), 'The given input directory does not exist.')
-    out_dir = '/Users/carnitas/Matlab2Python/tmp/'
+    out_dir = '/Users/carnitas/Matlab2Python/cv2_resize_linear/'
     if not os.path.isdir(out_dir):
         os.mkdir(out_dir)
     print('Dark images pulled from: ' + in_dir)
+    start = time.time()
     for in_filename in os.listdir(in_dir):
         print(in_filename)
         enhanced_bgr_img = enhance_img(os.path.join(in_dir, in_filename))
         period_index = in_filename.find('.')
         out_filename = in_filename[:period_index] + '_BIMEF_python' + in_filename[period_index:]
         cv2.imwrite(os.path.join(out_dir, out_filename), enhanced_bgr_img)
+    end = time.time()
+    run_time = end - start
+    print('Total run time: ' + str(run_time))
     print('Enhanced images saved to: ' + out_dir)

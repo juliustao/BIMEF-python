@@ -1,7 +1,6 @@
 import numpy as np
 import cv2
 import time
-from imresize import imresize
 from sksparse.cholmod import cholesky
 from scipy import signal
 from scipy.sparse import spdiags
@@ -19,19 +18,15 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
     """
 
     def maxEntropyEnhance(I, isBad=None):
-        Y = rgb2gm(np.real(np.maximum(imresize(I, output_shape=(50, 50)), 0)))
-        # imresize(I, output_shape=(50, 50)) matches MATLAB with tolerance = 1e-14
+        Y = rgb2gm(np.real(np.maximum(cv2.resize(I, dsize=(50, 50)), 0)))
         # np.real(np.maximum(..., 0)) usually does nothing
-        # Y matches MATLAB with tolerance = 1e-16
 
         if not (isBad is None):
             isBad = (255*isBad).astype(np.uint8)  # converts bool array to uint8 array * 255
-            isBad = imresize(isBad, output_shape=(50, 50))
+            isBad = cv2.resize(isBad, dsize=(50, 50))
             isBad = isBad > 128  # converts uint8 array to bool array
-            # isBad matches MATLAB exactly
             Y = Y.T[isBad.T]
             # since python iterates row-first, we must take transpose of Y and isBad to iterate column-first like MATLAB
-            # Y matches MATLAB with tolerance = 1e-15
             # we leave Y in the shape of a 1D array instead of converting to a column vector like in MATLAB
 
         if Y.size == 0:
@@ -62,11 +57,7 @@ def BIMEF(I, mu=0.5, k=None, a=-0.3293, b=1.1258):
 
     # t: scene illumination map
     t_b = np.amax(I, axis=2)
-    t_our = imresize(tsmooth(imresize(t_b, scalar_scale=0.5), lamb, sigma), output_shape=t_b.shape)
-    # We try to replicate MatLab's imresize function, which uses intercubic interpolation and anti-aliasing by default
-    # imresize(t_b, scalar_scale=0.5) matches MATLAB exactly
-    # tsmooth(...) matches MATLAB with tolerance of 1e-14
-    # imresize(tsmooth(...), output_shape = t_b.shape) matches MATLAB with tolerance of 1e-14)
+    t_our = cv2.resize(tsmooth(cv2.resize(t_b, dsize=None, fx=0.5, fy=0.5), lamb, sigma), dsize=t_b.T.shape)
 
     # k: exposure ratio
     if k is None or k.size == 0:  # this path is taken
